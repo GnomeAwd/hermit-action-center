@@ -71,6 +71,30 @@ struct Client {
     inhibitingIdle: bool,
 }
 
+fn draw_colored_slider(ui: &mut egui::Ui, value: &mut f32, full_width: f32, primary: Color32) {
+    let height = 20.0; // Slider height
+
+    // Calculate filled width based on the value
+    let fill_ratio = (*value / 100.0).clamp(0.0, 1.0);
+    let filled_width = full_width * fill_ratio;
+
+    // Get available space and create a rectangle
+    let (rect, response) =
+        ui.allocate_at_least(egui::vec2(full_width, height), egui::Sense::hover());
+
+    // Get the painter to draw custom visuals
+    let painter = ui.painter();
+
+    // Draw the filled portion (left side of the slider)
+    painter.rect_filled(
+        Rect::from_min_size(rect.min, egui::vec2(filled_width, height)),
+        5.0,     // Corner rounding
+        primary, // Orange fill color
+    );
+
+    // Draw the normal slider on top
+    ui.put(rect, Slider::new(value, 0.0..=100.0).show_value(false));
+}
 impl ActionCenterWidget {
     fn place_widgets(&mut self) {
         if self.positioned {
@@ -404,31 +428,23 @@ impl eframe::App for ActionCenterWidget {
                                         // Get the remaining width for the slider
                                         let available_width = ui.available_width();
 
-                                        // Make the slider take up all remaining space with appropriate styling
-                                        {
-                                            // Apply custom styling to match the theme
-                                            let mut style = (*ui.ctx().style()).clone();
-                                            style.visuals.widgets.active.bg_fill =
-                                                self.colors.primary;
-                                            style.visuals.widgets.inactive.bg_fill =
-                                                Color32::from_gray(60);
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().slider_width = available_width;
+                                            // Slider::new(
+                                            //     &mut self.brightness_value,
+                                            //     0.0..=100.0,
+                                            // )
+                                            // .show_value(false)
+                                            // Avoid multiple mutable borrows by storing the value first
 
-                                            let old_style = ui.ctx().style().clone();
-                                            ui.ctx().set_style(style);
-
-                                            ui.add_sized(
-                                                [available_width, 16.0],
-                                                Slider::new(
-                                                    &mut self.brightness_value,
-                                                    0.0..=100.0,
-                                                )
-                                                .show_value(false)
-                                                .handle_shape(HandleShape::Circle)
-                                                .trailing_fill(true),
+                                            let brightness = &mut self.brightness_value;
+                                            draw_colored_slider(
+                                                ui,
+                                                brightness,
+                                                available_width,
+                                                self.colors.primary,
                                             );
-
-                                            ui.ctx().set_style(old_style);
-                                        }
+                                        });
                                     });
                                 });
                         });
