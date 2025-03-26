@@ -8,6 +8,12 @@ use std::io::Read;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+mod active_actions;
+mod quick_settings;
+use active_actions::ActiveActions;
+use quick_settings::QuickSettings;
+
+#[derive(Clone)]
 struct Colors {
     background: Color32,
     surface: Color32,
@@ -36,6 +42,8 @@ struct ActionCenterWidget {
     colors: Colors,
     positioned: bool,
     brightness_value: f32,
+    quick_settings: QuickSettings,
+    active_actions: ActiveActions,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -134,11 +142,11 @@ impl ActionCenterWidget {
                 // println!("Action Center client: {:?}", action_center_client);
                 let address = action_center_client.address.clone();
                 let monitor_width = 1920;
-                // let monitor_height = 1080;
-                let x = monitor_width - 270 - 30;
+                let monitor_height = 1080;
+                let x = monitor_width - 370 - 10;
                 let y = 60;
-                let width = 270;
-                let height = 400;
+                let width = 370;
+                let height = monitor_height - 70;
 
                 let move_cmd = format!(
                     "hyprctl dispatch movewindowpixel \"exact {} {},address:{}\"",
@@ -236,7 +244,9 @@ impl ActionCenterWidget {
             }
         }
 
-        self.colors = colors;
+        self.colors = colors.clone();
+        self.quick_settings.update_colors(colors.clone());
+        self.active_actions.update_colors(colors);
     }
 }
 
@@ -251,184 +261,63 @@ impl eframe::App for ActionCenterWidget {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Create a scrollable area for the list of networks that takes up the full width and height
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .max_height(ui.available_height() - 8.0) // Reduce top padding
+                .max_height(ui.available_height() - 8.0)
                 .show(ui, |ui| {
+                    ui.add_space(4.0);
                     ui.vertical(|ui| {
-                        // Use the Layout to ensure consistent spacing
-                        ui.with_layout(Layout::left_to_right(egui::Align::TOP), |ui| {
-                            // First grid (left side)
-                            egui::Frame::new()
-                                .fill(self.colors.surface)
-                                .inner_margin(12.0)
-                                .corner_radius(16.0)
-                                .outer_margin(4.0) // Make sure both frames have the same margin
-                                .show(ui, |ui| {
-                                    egui::Grid::new("button_grid_left")
-                                        .spacing([10.0, 8.0])
-                                        .min_col_width(40.0) // Ensure consistent column width
-                                        .show(ui, |ui| {
-                                            // Create a circular Wifi button with an icon
-                                            let wifi_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(WIFI_HIGH)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
+                        // Top section with equal-width widgets
+                        ui.horizontal(|ui| {
+                            ui.add_space(4.0);
+                            ui.set_min_width(ui.available_width());
+                            let available_width = ui.available_width() / 2.0 - 8.0; // Half spacing between columns
 
-                                            if wifi_response.clicked() {
-                                                println!("Wifi clicked!");
-                                            }
+                            // Left column - Quick Settings
+                            ui.scope(|ui| {
+                                ui.set_min_width(available_width);
+                                ui.set_max_width(available_width);
+                                self.quick_settings.show(ui);
+                            });
 
-                                            let network_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(NETWORK)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
+                            ui.add_space(4.0);
 
-                                            if network_response.clicked() {
-                                                println!("Network clicked!");
-                                            }
-
-                                            ui.end_row(); // Move to the next row
-
-                                            let bluetooth_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(BLUETOOTH)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if bluetooth_response.clicked() {
-                                                println!("Bluetooth clicked!");
-                                            }
-
-                                            let airplane_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(AIRPLANE)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if airplane_response.clicked() {
-                                                println!("Flight Mode clicked!");
-                                            }
-                                        });
-                                });
-
-                            // Second grid (right side)
-                            egui::Frame::new()
-                                .fill(self.colors.surface)
-                                .inner_margin(12.0)
-                                .corner_radius(16.0)
-                                .outer_margin(4.0) // Make sure both frames have the same margin
-                                .show(ui, |ui| {
-                                    egui::Grid::new("button_grid_right")
-                                        .spacing([10.0, 8.0])
-                                        .min_col_width(40.0) // Ensure consistent column width
-                                        .show(ui, |ui| {
-                                            let battery_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(BATTERY_FULL)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if battery_response.clicked() {
-                                                println!("Battery clicked!");
-                                            }
-
-                                            let volume_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(SPEAKER_HIGH)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if volume_response.clicked() {
-                                                println!("Volume clicked!");
-                                            }
-                                            ui.end_row(); // Move to the next row
-
-                                            let screenshot_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(CROP)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if screenshot_response.clicked() {
-                                                println!("Screenshot clicked!");
-                                            }
-
-                                            let lock_response = ui.add(
-                                                Button::new(
-                                                    RichText::new(LOCK)
-                                                        .size(20.0)
-                                                        .color(self.colors.on_primary),
-                                                )
-                                                .min_size(Vec2::new(40.0, 40.0))
-                                                .corner_radius(20.0)
-                                                .fill(self.colors.primary),
-                                            );
-
-                                            if lock_response.clicked() {
-                                                println!("Lock clicked!");
-                                            }
-                                        });
-                                });
+                            // Right column - Active Actions
+                            ui.scope(|ui| {
+                                ui.set_min_width(available_width);
+                                ui.set_max_width(available_width);
+                                self.active_actions.show(ui);
+                            });
                         });
-                        ui.add_space(4.0);
+                        //ADD seperator
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("Display").color(self.colors.on_surface));
+                            ui.add_space(8.0);
+                        });
+                        ui.add_space(8.0);
+
                         // Add a brightness slider with the same total width as the grid blocks above
                         ui.with_layout(Layout::left_to_right(egui::Align::TOP), |ui| {
                             // Create a frame for the slider
                             egui::Frame::new()
                                 .fill(self.colors.surface)
                                 .inner_margin(12.0)
-                                .corner_radius(16.0)
-                                .outer_margin(4.0)
+                                .corner_radius(18.0)
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         // Set a minimum width for the entire horizontal layout
                                         ui.set_min_width(ui.available_width());
 
                                         // Add icon on the left
-                                        ui.add(Label::new(
+                                        ui.label(
                                             RichText::new(SUN)
                                                 .size(20.0)
                                                 .color(self.colors.on_surface),
-                                        ));
+                                        );
 
                                         ui.add_space(10.0);
 
@@ -437,13 +326,6 @@ impl eframe::App for ActionCenterWidget {
 
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().slider_width = available_width;
-                                            // Slider::new(
-                                            //     &mut self.brightness_value,
-                                            //     0.0..=100.0,
-                                            // )
-                                            // .show_value(false)
-                                            // Avoid multiple mutable borrows by storing the value first
-
                                             let brightness = &mut self.brightness_value;
                                             draw_colored_slider(
                                                 ui,
@@ -455,6 +337,59 @@ impl eframe::App for ActionCenterWidget {
                                     });
                                 });
                         });
+
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("Sound").color(self.colors.on_surface));
+                            ui.add_space(8.0);
+                        });
+                        ui.add_space(8.0);
+                        // Add a brightness slider with the same total width as the grid blocks above
+                        ui.with_layout(Layout::left_to_right(egui::Align::TOP), |ui| {
+                            // Create a frame for the slider
+                            egui::Frame::new()
+                                .fill(self.colors.surface)
+                                .inner_margin(12.0)
+                                .corner_radius(18.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        // Set a minimum width for the entire horizontal layout
+                                        ui.set_min_width(ui.available_width());
+
+                                        // Add icon on the left
+                                        ui.label(
+                                            RichText::new(SPEAKER_HIGH)
+                                                .size(20.0)
+                                                .color(self.colors.on_surface),
+                                        );
+
+                                        ui.add_space(10.0);
+
+                                        // Get the remaining width for the slider
+                                        let available_width = ui.available_width();
+
+                                        ui.horizontal(|ui| {
+                                            ui.spacing_mut().slider_width = available_width;
+                                            let brightness = &mut self.brightness_value;
+                                            draw_colored_slider(
+                                                ui,
+                                                brightness,
+                                                available_width,
+                                                self.colors.primary,
+                                            );
+                                        });
+                                    });
+                                });
+                        });
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("Notifications").color(self.colors.on_surface));
+                            ui.add_space(8.0);
+                        });
                     });
                 });
         });
@@ -464,10 +399,13 @@ impl eframe::App for ActionCenterWidget {
 
 impl Default for ActionCenterWidget {
     fn default() -> Self {
+        let colors = Colors::default();
         let mut widget = Self {
-            colors: Colors::default(),
+            colors: colors.clone(),
             positioned: false,
             brightness_value: 50.0,
+            quick_settings: QuickSettings::new(colors.clone()),
+            active_actions: ActiveActions::new(colors),
         };
         widget.get_colors();
         widget
