@@ -72,8 +72,9 @@ struct Client {
 }
 
 fn draw_colored_slider(ui: &mut egui::Ui, value: &mut f32, full_width: f32, primary: Color32) {
-    let height = 20.0; // Slider height
+    let height = 16.0; // Increased slider height
 
+    ui.style_mut().visuals.selection.bg_fill = primary;
     // Calculate filled width based on the value
     let fill_ratio = (*value / 100.0).clamp(0.0, 1.0);
     let filled_width = full_width * fill_ratio;
@@ -93,7 +94,13 @@ fn draw_colored_slider(ui: &mut egui::Ui, value: &mut f32, full_width: f32, prim
     );
 
     // Draw the normal slider on top
-    ui.put(rect, Slider::new(value, 0.0..=100.0).show_value(false));
+    ui.put(
+        rect,
+        Slider::new(value, 0.0..=100.0)
+            .show_value(false)
+            .trailing_fill(true)
+            .handle_shape(HandleShape::Circle), // Increased aspect ratio for taller rectangle
+    );
 }
 impl ActionCenterWidget {
     fn place_widgets(&mut self) {
