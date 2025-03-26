@@ -1,12 +1,16 @@
 use eframe::egui;
 use egui::{Button, Color32, Label, Layout, RichText, Vec2};
 use egui_phosphor::regular::*;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 #[derive(Default)]
 pub struct QuickSettingsState {
     pub wifi_enabled: bool,
+    pub wifi_network_name: String,
     pub network_enabled: bool,
     pub bluetooth_enabled: bool,
+    pub bluetooth_device_name: String,
     pub airplane_enabled: bool,
 }
 
@@ -17,10 +21,138 @@ pub struct QuickSettings {
 
 impl QuickSettings {
     pub fn new(colors: super::Colors) -> Self {
-        Self {
+        let mut qs = Self {
             state: QuickSettingsState::default(),
             colors,
+        };
+
+        // Initialize states on startup
+        qs.update_wifi_state();
+        qs.update_bluetooth_state();
+
+        qs
+    }
+
+    /// Fetches current WiFi state and connected network
+    pub fn update_wifi_state(&mut self) {
+        // Check if WiFi is enabled
+        let wifi_status = Command::new("nmcli").args(&["radio", "wifi"]).output();
+
+        if let Ok(output) = wifi_status {
+            let status_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            self.state.wifi_enabled = status_str == "enabled";
+
+            // If WiFi is enabled, get the connected network name
+            if self.state.wifi_enabled {
+                let network_cmd = Command::new("nmcli")
+                    .args(&["-t", "-f", "NAME,DEVICE", "connection", "show", "--active"])
+                    .output();
+
+                if let Ok(net_output) = network_cmd {
+                    let net_str = String::from_utf8_lossy(&net_output.stdout);
+                    self.state.wifi_network_name = String::new(); // Reset before checking
+
+                    // Parse the output for connections on WiFi devices (wlan0, etc.)
+                    for line in net_str.lines() {
+                        let parts: Vec<&str> = line.split(':').collect();
+                        if parts.len() >= 2 && parts[1].starts_with("wl") {
+                            self.state.wifi_network_name = parts[0].to_string();
+                            break;
+                        }
+                    }
+                }
+            } else {
+                self.state.wifi_network_name = String::new();
+            }
         }
+    }
+
+    /// Fetches current Bluetooth state and connected device
+    pub fn update_bluetooth_state(&mut self) {
+        // Check if Bluetooth is powered on using grep to directly get the power state
+        let bt_status = Command::new("sh")
+            .arg("-c")
+            .arg("bluetoothctl show | grep 'Powered:'")
+            .output();
+
+        if let Ok(output) = bt_status {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+
+            // Parse the line "Powered: yes/no" and check if it contains "yes"
+            self.state.bluetooth_enabled = output_str.contains("Powered: yes");
+
+            // If Bluetooth is enabled, check for connected devices
+            if self.state.bluetooth_enabled {
+                // Get connected devices - using direct shell command for more reliable output
+                let devices_cmd = Command::new("sh")
+                    .arg("-c")
+                    .arg("bluetoothctl devices Connected")
+                    .output();
+
+                if let Ok(devices_output) = devices_cmd {
+                    let devices_str = String::from_utf8_lossy(&devices_output.stdout);
+                    self.state.bluetooth_device_name = String::new(); // Reset before checking
+
+                    // Parse the first connected device (if any)
+                    // Format is typically: "Device XX:XX:XX:XX:XX:XX DeviceName"
+                    for line in devices_str.lines() {
+                        if line.starts_with("Device") {
+                            let parts: Vec<&str> = line.split(' ').collect();
+                            if parts.len() >= 3 {
+                                // Join all parts after the MAC address to get the full device name
+                                self.state.bluetooth_device_name = parts[2..].join(" ");
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.state.bluetooth_device_name = String::new();
+            }
+        }
+    }
+
+    /// Toggle WiFi on/off
+    fn toggle_wifi(&mut self) {
+        let new_state = if self.state.wifi_enabled { "off" } else { "on" };
+
+        let _ = Command::new("nmcli")
+            .args(&["radio", "wifi", new_state])
+            .output();
+
+        // Update the state after toggling
+        self.update_wifi_state();
+    }
+
+    /// Toggle Bluetooth on/off
+    fn toggle_bluetooth(&mut self) {
+        let new_state = if self.state.bluetooth_enabled {
+            "off"
+        } else {
+            "on"
+        };
+
+        // Use echo to pipe commands to bluetoothctl for more reliable execution
+        let mut child = Command::new("bluetoothctl")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("Failed to start bluetoothctl");
+
+        // Write commands to bluetoothctl stdin
+        if let Some(mut stdin) = child.stdin.take() {
+            let cmd = format!("power {}\nquit\n", new_state);
+            stdin
+                .write_all(cmd.as_bytes())
+                .expect("Failed to write to bluetoothctl stdin");
+        }
+
+        // Wait for command to complete
+        let _ = child.wait();
+
+        // Update the state after toggling - with a small delay to allow bluetoothctl to complete
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        self.update_bluetooth_state();
     }
 
     pub fn update_colors(&mut self, colors: super::Colors) {
@@ -66,7 +198,8 @@ impl QuickSettings {
                                     primary,
                                     surface,
                                 ) {
-                                    self.state.wifi_enabled = !self.state.wifi_enabled;
+                                    // Toggle WiFi when clicked
+                                    self.toggle_wifi();
                                 }
                                 ui.vertical_centered(|ui| {
                                     ui.horizontal(|ui| {
@@ -75,9 +208,19 @@ impl QuickSettings {
                                         );
                                     });
                                     ui.horizontal(|ui| {
+                                        let status_text = if self.state.wifi_enabled {
+                                            if !self.state.wifi_network_name.is_empty() {
+                                                &self.state.wifi_network_name
+                                            } else {
+                                                "On"
+                                            }
+                                        } else {
+                                            "Off"
+                                        };
+
                                         ui.label(
-                                            RichText::new("Off")
-                                                .size(11.0)
+                                            RichText::new(status_text)
+                                                .size(12.0)
                                                 .color(self.colors.on_surface),
                                         );
                                     });
@@ -85,6 +228,7 @@ impl QuickSettings {
                             });
                             ui.end_row();
 
+                            // Bluetooth row
                             ui.horizontal(|ui| {
                                 if self.add_button(
                                     ui,
@@ -96,7 +240,8 @@ impl QuickSettings {
                                     primary,
                                     surface,
                                 ) {
-                                    self.state.bluetooth_enabled = !self.state.bluetooth_enabled;
+                                    // Toggle Bluetooth when clicked
+                                    self.toggle_bluetooth();
                                 }
                                 ui.vertical_centered(|ui| {
                                     ui.horizontal(|ui| {
@@ -106,8 +251,18 @@ impl QuickSettings {
                                         );
                                     });
                                     ui.horizontal(|ui| {
+                                        let status_text = if self.state.bluetooth_enabled {
+                                            if !self.state.bluetooth_device_name.is_empty() {
+                                                &self.state.bluetooth_device_name
+                                            } else {
+                                                "On"
+                                            }
+                                        } else {
+                                            "Off"
+                                        };
+
                                         ui.label(
-                                            RichText::new("Off")
+                                            RichText::new(status_text)
                                                 .size(12.0)
                                                 .color(self.colors.on_surface),
                                         );
