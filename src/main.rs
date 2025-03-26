@@ -1,6 +1,5 @@
 use eframe::egui;
-use egui::style::HandleShape;
-use egui::{Button, Color32, Label, Layout, Rect, RichText, Slider, Vec2, Widget};
+use egui::{Button, Color32, Label, Layout, RichText, Vec2, Widget};
 use egui_phosphor::regular::*;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -10,8 +9,11 @@ use std::time::{Duration, Instant};
 
 mod active_actions;
 mod quick_settings;
+mod slider_controls;
+
 use active_actions::ActiveActions;
 use quick_settings::QuickSettings;
+use slider_controls::IconSlider;
 
 #[derive(Clone)]
 struct Colors {
@@ -41,9 +43,12 @@ impl Default for Colors {
 struct ActionCenterWidget {
     colors: Colors,
     positioned: bool,
-    brightness_value: f32,
+    brightness_slider: IconSlider,
+    volume_slider: IconSlider,
     quick_settings: QuickSettings,
     active_actions: ActiveActions,
+    last_wifi_update: std::time::Instant,
+    last_bluetooth_update: std::time::Instant,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -79,37 +84,6 @@ struct Client {
     inhibitingIdle: bool,
 }
 
-fn draw_colored_slider(ui: &mut egui::Ui, value: &mut f32, full_width: f32, primary: Color32) {
-    let height = 16.0; // Increased slider height
-
-    ui.style_mut().visuals.selection.bg_fill = primary;
-    // Calculate filled width based on the value
-    let fill_ratio = (*value / 100.0).clamp(0.0, 1.0);
-    let filled_width = full_width * fill_ratio;
-
-    // Get available space and create a rectangle
-    let (rect, response) =
-        ui.allocate_at_least(egui::vec2(full_width, height), egui::Sense::hover());
-
-    // Get the painter to draw custom visuals
-    let painter = ui.painter();
-
-    // Draw the filled portion (left side of the slider)
-    painter.rect_filled(
-        Rect::from_min_size(rect.min, egui::vec2(filled_width, height)),
-        5.0,     // Corner rounding
-        primary, // Orange fill color
-    );
-
-    // Draw the normal slider on top
-    ui.put(
-        rect,
-        Slider::new(value, 0.0..=100.0)
-            .show_value(false)
-            .trailing_fill(true)
-            .handle_shape(HandleShape::Circle), // Increased aspect ratio for taller rectangle
-    );
-}
 impl ActionCenterWidget {
     fn place_widgets(&mut self) {
         if self.positioned {
@@ -252,6 +226,20 @@ impl ActionCenterWidget {
 
 impl eframe::App for ActionCenterWidget {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let now = std::time::Instant::now();
+
+        // Update WiFi status every 5 seconds
+        if now.duration_since(self.last_wifi_update).as_secs() >= 5 {
+            self.quick_settings.update_wifi_state();
+            self.last_wifi_update = now;
+        }
+
+        // Update Bluetooth status every 5 seconds
+        if now.duration_since(self.last_bluetooth_update).as_secs() >= 5 {
+            self.quick_settings.update_bluetooth_state();
+            self.last_bluetooth_update = now;
+        }
+
         // Set the global visual style with our custom colors
         {
             let mut style = (*ctx.style()).clone();
@@ -293,96 +281,15 @@ impl eframe::App for ActionCenterWidget {
                         ui.add_space(8.0);
                         ui.separator();
                         ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(8.0);
-                            ui.label(RichText::new("Display").color(self.colors.on_surface));
-                            ui.add_space(8.0);
-                        });
+
+                        // Display section with brightness slider
+                        self.brightness_slider.show(ui, &self.colors);
                         ui.add_space(8.0);
 
-                        // Add a brightness slider with the same total width as the grid blocks above
-                        ui.with_layout(Layout::left_to_right(egui::Align::TOP), |ui| {
-                            // Create a frame for the slider
-                            egui::Frame::new()
-                                .fill(self.colors.surface)
-                                .inner_margin(12.0)
-                                .corner_radius(18.0)
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        // Set a minimum width for the entire horizontal layout
-                                        ui.set_min_width(ui.available_width());
-
-                                        // Add icon on the left
-                                        ui.label(
-                                            RichText::new(SUN)
-                                                .size(20.0)
-                                                .color(self.colors.on_surface),
-                                        );
-
-                                        ui.add_space(10.0);
-
-                                        // Get the remaining width for the slider
-                                        let available_width = ui.available_width();
-
-                                        ui.horizontal(|ui| {
-                                            ui.spacing_mut().slider_width = available_width;
-                                            let brightness = &mut self.brightness_value;
-                                            draw_colored_slider(
-                                                ui,
-                                                brightness,
-                                                available_width,
-                                                self.colors.primary,
-                                            );
-                                        });
-                                    });
-                                });
-                        });
-
+                        // Sound section with volume slider
+                        self.volume_slider.show(ui, &self.colors);
                         ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(8.0);
-                            ui.label(RichText::new("Sound").color(self.colors.on_surface));
-                            ui.add_space(8.0);
-                        });
-                        ui.add_space(8.0);
-                        // Add a brightness slider with the same total width as the grid blocks above
-                        ui.with_layout(Layout::left_to_right(egui::Align::TOP), |ui| {
-                            // Create a frame for the slider
-                            egui::Frame::new()
-                                .fill(self.colors.surface)
-                                .inner_margin(12.0)
-                                .corner_radius(18.0)
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        // Set a minimum width for the entire horizontal layout
-                                        ui.set_min_width(ui.available_width());
 
-                                        // Add icon on the left
-                                        ui.label(
-                                            RichText::new(SPEAKER_HIGH)
-                                                .size(20.0)
-                                                .color(self.colors.on_surface),
-                                        );
-
-                                        ui.add_space(10.0);
-
-                                        // Get the remaining width for the slider
-                                        let available_width = ui.available_width();
-
-                                        ui.horizontal(|ui| {
-                                            ui.spacing_mut().slider_width = available_width;
-                                            let brightness = &mut self.brightness_value;
-                                            draw_colored_slider(
-                                                ui,
-                                                brightness,
-                                                available_width,
-                                                self.colors.primary,
-                                            );
-                                        });
-                                    });
-                                });
-                        });
-                        ui.add_space(8.0);
                         ui.separator();
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
@@ -403,9 +310,12 @@ impl Default for ActionCenterWidget {
         let mut widget = Self {
             colors: colors.clone(),
             positioned: false,
-            brightness_value: 50.0,
+            brightness_slider: IconSlider::new(50.0, SUN.to_string()).with_title("Display"),
+            volume_slider: IconSlider::new(50.0, SPEAKER_HIGH.to_string()).with_title("Sound"),
             quick_settings: QuickSettings::new(colors.clone()),
             active_actions: ActiveActions::new(colors),
+            last_wifi_update: std::time::Instant::now(),
+            last_bluetooth_update: std::time::Instant::now(),
         };
         widget.get_colors();
         widget
